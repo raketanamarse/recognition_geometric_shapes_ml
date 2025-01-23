@@ -1,97 +1,179 @@
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, Dropout, Input, BatchNormalization
-from tensorflow.keras.regularizers import l2
-from tensorflow.keras.preprocessing.image import ImageDataGenerator
-from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.callbacks import EarlyStopping
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torchvision import transforms, datasets
+from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
+from tqdm import tqdm
 
 # Параметры
-img_size = (64, 64)
+img_size = 64
 num_classes = 3
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# Создание модели
-model = Sequential([
-    Input(shape=(*img_size, 3)),
-    Conv2D(32, (3, 3), activation='relu'),
-    BatchNormalization(),
-    MaxPooling2D(pool_size=(2, 2)),
-    Conv2D(64, (3, 3), activation='relu'),
-    BatchNormalization(),
-    MaxPooling2D(pool_size=(2, 2)),
-    Flatten(),
-    Dense(128, activation='relu', kernel_regularizer=l2(0.01)),
-    Dropout(0.5),
-    Dense(num_classes, activation='softmax')
-])
+import torch
+print(f"PyTorch version: {torch.__version__}")
+print(f"CUDA available: {torch.cuda.is_available()}")
+print(f"CUDA version: {torch.version.cuda}")
+if torch.cuda.is_available():
+    print(f"GPU: {torch.cuda.get_device_name()}")
+    print(f"GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1024**2} MB")
 
-# Компиляция модели с уменьшенной скоростью обучения
-model.compile(optimizer=Adam(learning_rate=0.0001), loss='categorical_crossentropy', metrics=['accuracy'])
+# Определение модели
+class ConvNet(nn.Module):
+    def __init__(self):
+        super(ConvNet, self).__init__()
+        self.features = nn.Sequential(
+            nn.Conv2d(3, 32, kernel_size=3),
+            nn.ReLU(),
+            nn.BatchNorm2d(32),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            
+            nn.Conv2d(32, 64, kernel_size=3),
+            nn.ReLU(),
+            nn.BatchNorm2d(64),
+            nn.MaxPool2d(kernel_size=2, stride=2)
+        )
+        
+        # Вычисляем размер после свертки
+        self.flatten_size = 64 * 14 * 14  # Может потребоваться корректировка
+        
+        self.classifier = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(self.flatten_size, 128),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Linear(128, num_classes)
+        )
+        
+    def forward(self, x):
+        x = self.features(x)
+        x = self.classifier(x)
+        return x
 
 # Подготовка данных
-train_datagen = ImageDataGenerator(
-    rescale=1.0/255.0,
-    rotation_range=20,
-    width_shift_range=0.2,
-    height_shift_range=0.2,
-    shear_range=0.2,
-    zoom_range=0.2,
-    horizontal_flip=True,
-    validation_split=0.2
-)
+transform = transforms.Compose([
+     transforms.Resize((img_size, img_size)),
+    transforms.RandomHorizontalFlip(p=0.5),
+    transforms.RandomVerticalFlip(p=0.5),
+    transforms.RandomRotation(30),
+    transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
+    transforms.RandomAffine(degrees=0, translate=(0.1, 0.1), scale=(0.9, 1.1)),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+])
 
-train_generator = train_datagen.flow_from_directory(
-    'data/train',
-    target_size=(64, 64),
-    batch_size=32,
-    class_mode='categorical',
-    subset='training'
-)
+train_dataset = datasets.ImageFolder('data/train', transform=transform)
+train_size = int(0.8 * len(train_dataset))
+val_size = len(train_dataset) - train_size
+train_dataset, val_dataset = torch.utils.data.random_split(train_dataset, [train_size, val_size])
 
-val_generator = train_datagen.flow_from_directory(
-    'data/train',
-    target_size=(64, 64),
-    batch_size=32,
-    class_mode='categorical',
-    subset='validation'
-)
+test_dataset = datasets.ImageFolder('data/check', transform=transform)
 
-test_generator = ImageDataGenerator(rescale=1.0/255.0).flow_from_directory(
-    'data/check',
-    target_size=(64, 64),
-    batch_size=32,
-    class_mode='categorical'
-)
+train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
+val_loader = DataLoader(val_dataset, batch_size=32)
+test_loader = DataLoader(test_dataset, batch_size=32)
 
-# Ранняя остановка при отсутствии улучшений
-early_stop = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
+# Инициализация модели, оптимизатора и функции потерь
+model = ConvNet().to(device)
+criterion = nn.CrossEntropyLoss()
+optimizer = optim.Adam(model.parameters(), lr=0.0001, weight_decay=0.01)
+
+# Функция для обучения одной эпохи
+def train_epoch(model, loader, criterion, optimizer):
+    model.train()
+    running_loss = 0.0
+    correct = 0
+    total = 0
+    
+    for inputs, labels in tqdm(loader):
+        inputs, labels = inputs.to(device), labels.to(device)
+        
+        optimizer.zero_grad()
+        outputs = model(inputs)
+        loss = criterion(outputs, labels)
+        loss.backward()
+        optimizer.step()
+        
+        running_loss += loss.item()
+        _, predicted = outputs.max(1)
+        total += labels.size(0)
+        correct += predicted.eq(labels).sum().item()
+        
+    return running_loss/len(loader), 100.*correct/total
+
+# Функция для валидации
+def validate(model, loader, criterion):
+    model.eval()
+    running_loss = 0.0
+    correct = 0
+    total = 0
+    
+    with torch.no_grad():
+        for inputs, labels in loader:
+            inputs, labels = inputs.to(device), labels.to(device)
+            outputs = model(inputs)
+            loss = criterion(outputs, labels)
+            
+            running_loss += loss.item()
+            _, predicted = outputs.max(1)
+            total += labels.size(0)
+            correct += predicted.eq(labels).sum().item()
+            
+    return running_loss/len(loader), 100.*correct/total
 
 # Обучение модели
-history = model.fit(
-    train_generator,
-    epochs=1000,
-    validation_data=val_generator,
-    callbacks=[early_stop]
-)
+epochs = 1000
+best_val_loss = float('inf')
+patience = 10
+patience_counter = 0
 
-# Оценка модели
-val_loss, val_acc = model.evaluate(val_generator)
-print(f"Validation Loss: {val_loss:.2f}, Validation Accuracy: {val_acc:.2f}")
-test_loss, test_acc = model.evaluate(test_generator)
-print(f"Test Loss: {test_loss:.2f}, Test Accuracy: {test_acc:.2f}")
+train_losses = []
+train_accs = []
+val_losses = []
+val_accs = []
 
-# Визуализация обучения
-plt.plot(history.history['accuracy'], label='Train Accuracy')
-plt.plot(history.history['val_accuracy'], label='Validation Accuracy')
+for epoch in range(epochs):
+    train_loss, train_acc = train_epoch(model, train_loader, criterion, optimizer)
+    val_loss, val_acc = validate(model, val_loader, criterion)
+    
+    train_losses.append(train_loss)
+    train_accs.append(train_acc)
+    val_losses.append(val_loss)
+    val_accs.append(val_acc)
+    
+    print(f'Epoch: {epoch+1}/{epochs}')
+    print(f'Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.2f}%')
+    print(f'Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.2f}%')
+    
+    if val_loss < best_val_loss:
+        best_val_loss = val_loss
+        patience_counter = 0
+        torch.save(model.state_dict(), 'best_model.pth')
+    else:
+        patience_counter += 1
+        if patience_counter >= patience:
+            print("Early stopping!")
+            break
+
+# Загрузка лучшей модели
+model.load_state_dict(torch.load('best_model.pth'))
+
+# Оценка на тестовом наборе
+test_loss, test_acc = validate(model, test_loader, criterion)
+print(f'Test Loss: {test_loss:.4f}, Test Acc: {test_acc:.2f}%')
+
+# Визуализация результатов
+plt.figure(figsize=(12, 4))
+plt.subplot(1, 2, 1)
+plt.plot(train_accs, label='Train Accuracy')
+plt.plot(val_accs, label='Validation Accuracy')
 plt.legend()
 plt.title('Accuracy')
-plt.show()
 
-plt.plot(history.history['loss'], label='Train Loss')
-plt.plot(history.history['val_loss'], label='Validation Loss')
+plt.subplot(1, 2, 2)
+plt.plot(train_losses, label='Train Loss')
+plt.plot(val_losses, label='Validation Loss')
 plt.legend()
 plt.title('Loss')
 plt.show()
-
-# Сохранение модели
-model.save('shape_classifier.h5')
