@@ -6,23 +6,26 @@ from pathlib import Path
 
 def train_and_validate():
     # Создаем и обучаем модель
-    model = YOLO('yolov8n.pt')  # n - nano версия, можно использовать s/m/l/x для больших моделей
+    model = YOLO('yolov8n.yaml')  # n - nano версия, можно использовать s/m/l/x для больших моделей
     
     # Путь к твоему yaml файлу
     yaml_path = 'dataset/dataset.yaml'
     
     # Обучаем модель
-    results = model.train(
+    model.train(
         data=yaml_path,
         epochs=100,
         imgsz=640,  # размер изображения
         batch=16,    # размер батча
         patience=20,  # early stopping
-        save=True    # сохранять лучшие веса
+        save=True,    # сохранять лучшие веса
+        pretrained=False,
+        name='geometric_shapes',  # имя для логов
+        device='cuda'  # явно указываем использование GPU
     )
     
     # Валидация на тестовом наборе
-    val_results = model.val()
+    model.val(data=yaml_path)
     
     return model
 
