@@ -12,10 +12,10 @@ def create_and_train_model():
     """
     Создание и обучение новой модели
     """
-    print("*Фыр* Создаём новую модель...")
+    print("Создаём новую модель...")
     
     # Создаём модель из yaml
-    model = YOLO('yolov8n.yaml')
+    model = YOLO('yolov8n.pt')
     
     # Загружаем конфигурацию датасета
     with open('dataset/dataset.yaml', 'r') as f:
@@ -28,55 +28,113 @@ def create_and_train_model():
     
     # Обучаем модель
     results = model.train(
-        data='dataset/dataset.yaml',
-        epochs=100,
-        imgsz=640,
-        batch=16,
-        patience=20,
-        save=True,
-        pretrained=False,
-        name='geometric_shapes',
-        device='cuda',
-        workers=8,
-        optimizer='Adam',
-        lr0=0.01,
-        warmup_epochs=3,
-        save_period=10
+    data='dataset/dataset.yaml',
+    epochs=100,                    # Оставляем как есть
+    imgsz=640,                    # Стандартный размер для YOLO
+    batch=32,                     # Увеличил batch для лучшей сходимости
+    patience=25,                  # Увеличил терпение для early stopping
+    save=True,
+    pretrained=True,             # Включил предобученные веса - так обычно лучше
+    name='geometric_shapes',
+    device='cuda',
+    workers=4,                    # Уменьшил число workers для стабильности
+    optimizer='AdamW',           # AdamW обычно работает лучше чем Adam
+    lr0=0.001,                   # Уменьшил начальный learning rate для стабильности
+    warmup_epochs=5,             # Увеличил warmup для лучшей инициализации
+    save_period=5,               # Сохраняем чаще
+    cos_lr=True,                 # Добавил косинусное затухание learning rate
+    weight_decay=0.0005,         # Добавил L2 регуляризацию
+    momentum=0.937,              # Оптимальное значение момента
+    close_mosaic=10,             # Отключаем мозаику в конце обучения
+    augment=True                 # Включаем аугментацию
     )
     
     return model
 
 def evaluate_model(model):
     """
-    Оценка метрик модели
+    Оценка метрик модели с добавлением accuracy и F1
     """
     print("\nПроверяем, как модель справляется...")
-    results = model.val(data='dataset/dataset.yaml')
-    
-    
-    metrics = {
-        'mAP50': float(results.box.map50),
-        'mAP50-95': float(results.box.map),
-        'precision': float(results.box.p),
-        'recall': float(results.box.r),
-        'speed': {
-            'preprocess': results.speed['preprocess'],
-            'inference': results.speed['inference'],
-            'postprocess': results.speed['postprocess']
+    try:
+        # Проводим валидацию
+        results = model.val(data='dataset/dataset.yaml')
+        
+        # Получаем предсказания и истинные метки
+        predictions = []
+        true_labels = []
+        
+        # Собираем все предсказания из результатов валидации
+        for batch in results.pred:
+            pred_classes = batch.cls.cpu().numpy()
+            true_classes = batch.target.cls.cpu().numpy()
+            predictions.extend(pred_classes)
+            true_labels.extend(true_classes)
+            
+        # Рассчитываем метрики используя sklearn
+        from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
+        
+        metrics = {
+            # Стандартные метрики YOLO
+            'mAP50': float(results.box.map50),
+            'mAP50-95': float(results.box.map),
+            
+            # Дополнительные метрики
+            'accuracy': float(accuracy_score(true_labels, predictions)),
+            'precision': float(precision_score(true_labels, predictions, average='weighted')),
+            'recall': float(recall_score(true_labels, predictions, average='weighted')),
+            'f1': float(f1_score(true_labels, predictions, average='weighted')),
+            
+            # Скоростные метрики
+            'speed': {
+                'preprocess': results.speed['preprocess'],
+                'inference': results.speed['inference'],
+                'postprocess': results.speed['postprocess']
+            }
         }
-    }
+        
+        print("\nИтоговые метрики:")
+        print(f"mAP50: {metrics['mAP50']:.3f}")
+        print(f"mAP50-95: {metrics['mAP50-95']:.3f}")
+        print(f"Accuracy: {metrics['accuracy']:.3f}")
+        print(f"Precision: {metrics['precision']:.3f}")
+        print(f"Recall: {metrics['recall']:.3f}")
+        print(f"F1-score: {metrics['f1']:.3f}")
+        
+        # Сохраняем метрики
+        save_path = Path('runs/detect/geometric_shapes')
+        save_path.mkdir(parents=True, exist_ok=True)
+        
+        with open(save_path / 'metrics.json', 'w') as f:
+            json.dump(metrics, f, indent=4)
+        
+        # Строим матрицу ошибок
+        plot_confusion_matrix(true_labels, predictions, save_path)
+        
+        return metrics
     
-    print("\nИтоговые метрики:")
-    print(f"mAP50: {metrics['mAP50']:.3f}")
-    print(f"mAP50-95: {metrics['mAP50-95']:.3f}")
-    print(f"Precision: {metrics['precision']:.3f}")
-    print(f"Recall: {metrics['recall']:.3f}")
-    
-    # Сохраняем метрики
-    with open('runs/detect/geometric_shapes/metrics.json', 'w') as f:
-        json.dump(metrics, f, indent=4)
-    
-    return metrics
+    except Exception as e:
+        print(f"\n*Грустно опускает ушки* Произошла ошибка при оценке метрик: {str(e)}")
+        return None
+
+def plot_confusion_matrix(y_true, y_pred, save_path):
+    """
+    Построение матрицы ошибок
+    """
+    try:
+        from sklearn.metrics import confusion_matrix
+        import seaborn as sns
+        
+        cm = confusion_matrix(y_true, y_pred)
+        plt.figure(figsize=(10, 8))
+        sns.heatmap(cm, annot=True, fmt='d')
+        plt.title('Матрица ошибок')
+        plt.ylabel('Истинный класс')
+        plt.xlabel('Предсказанный класс')
+        plt.savefig(save_path / 'confusion_matrix.png')
+        plt.close()
+    except Exception as e:
+        print(f"Не удалось построить матрицу ошибок: {str(e)}")
 
 def test_on_random_images(model, test_dir='dataset/test', num_images=5):
     """
