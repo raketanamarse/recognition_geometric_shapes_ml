@@ -1,4 +1,4 @@
-# 🦊 Geometric Shapes Detection with YOLOv8
+# 🦊 Geometric Shapes Detection with YOLOv8 (FInal ver)
 
 Проект для определения геометрических фигур с использованием YOLOv8. 
 
@@ -106,6 +106,26 @@ python testYOLOBestModel.py
 python MetricsView.py
 ```
 ## 📝 Примечания
+
+# 🦊 Geometric One Shapes (First ver)
+реализация на keras
+скрипт обучения нейросети
+```bash
+python main_ai.py
+```
+скрипт обучения нейросети(не доделанный)
+```bash
+python main_ai_v2.py
+```
+скрипт генерации dataset
+```bash
+python generate_dataset.py
+```
+скрипт генерации dataset (не актуальный)
+```bash
+python generate_dataset_Old.py
+```
+
 
 
 Все скрипты настроены на работу с существующей структурой проекта
