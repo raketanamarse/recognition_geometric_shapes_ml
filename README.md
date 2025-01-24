@@ -4,19 +4,33 @@
 
 ## 📁 Структура проекта
 project/
+
 ├── dataset/ # Исходный датасет
+
 │  ├── test/ # Тестовые данные
-│  ├── train/ # Данные для обучения
-│  ├── val/ # Данные для валидации
-│  └── dataset.yaml # Конфигурация датасета
+
+   │  ├── train/ # Данные для обучения
+
+   │  ├── val/ # Данные для валидации
+
+   │  └── dataset.yaml # Конфигурация датасета
+
 ├── ConvertDatasetToYOLO.py # Конвертер разметки в формат YOLO
+
 ├── ViewResultYOLO.py # Скрипт обучения модели
+
 ├── testYOLOBestModel.py # Тестирование обученной модели
+
 ├── MetricsView.py # Анализ метрик модели
+
 └── runs/ # Результаты обучения
-└── detect/
-└── geometric_shapes/
-└── weights/
+
+   └── detect/
+
+      └── geometric_shapes/
+
+         └── weights/
+
 
 ## 🚀 Последовательность работы
 
