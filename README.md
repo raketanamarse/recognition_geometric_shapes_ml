@@ -25,11 +25,11 @@ project/
 
 └── runs/ # Результаты обучения
 
-   └── detect/
+      └── detect/
 
-      └── geometric_shapes/
+            └── geometric_shapes/
 
-         └── weights/
+               └── weights/
 
 
 ## 🚀 Последовательность работы
