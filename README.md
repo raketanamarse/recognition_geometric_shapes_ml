@@ -107,7 +107,10 @@ python MetricsView.py
 ```
 ## 📝 Примечания
 
-# 🦊 Geometric One Shapes (First ver)
+###Неудачная реализация определения мультиклассов. Работает только с одним классом
+
+### 🦊 Geometric One Shapes (First ver)
+
 реализация на keras
 скрипт обучения нейросети
 ```bash
