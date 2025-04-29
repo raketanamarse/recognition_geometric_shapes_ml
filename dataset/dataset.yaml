@@ -1,0 +1,8 @@
+path: C:\Users\kamil\Documents\Сриус\ML\recognition_geometric_shapes_ml
+
+train: ./dataset/train/images
+val: ./dataset/val/images
+test: ./dataset/test/images
+
+nc: 3
+names: ['circle', 'square', 'triangle']
